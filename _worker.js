@@ -18,7 +18,7 @@ async function handler(req,env){const url=new URL(req.url),path=url.pathname;
   let data;try{data=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
   if(typeof data.login!=='string'||data.login.length>254||typeof data.password!=='string'||data.password.length>256)return json({error:'Identifiants invalides.'},400);
   let r;try{r=await upstream('/api/warlike-auth/login',{method:'POST',body:JSON.stringify({login:data.login,password:data.password})})}catch{return json({error:'Le serveur de comptes WarLike n’est pas disponible sur Cloudflare.'},503)}
-  if(!r.ok)return json({error:r.status===429?'Trop de tentatives. Réessaie plus tard.':'Connexion WarLike indisponible ou identifiants incorrects.'},r.status===429?429:401);
+  if(!r.ok){if(r.status===429)return json({error:'Trop de tentatives. Réessaie plus tard.'},429);if(r.status===401||r.status===403)return json({error:'Identifiants incorrects ou accès refusé.'},401);return json({error:'La connexion WarLike Server sur Cloudflare n’est pas encore disponible. Ton mot de passe ne peut pas être vérifié.'},503);}
   let d;try{d=await r.json()}catch{return json({error:'Le serveur de comptes WarLike n’est pas disponible sur Cloudflare.'},503)}const match=/^__Host-warlike_session=([A-Za-z0-9_-]{43});/.exec(r.headers.get('set-cookie')||'');if(!match)return json({error:'Session non reconnue.'},502);
   if(d.mustChange){await upstream('/api/warlike-auth/logout',{method:'POST',token:match[1]}).catch(()=>{});return json({error:'Modifie d’abord tes identifiants temporaires dans WarLike Server.'},403)}
   let user;try{const x=await upstream('/api/warlike-auth/session',{token:match[1]});user=x.ok?(await x.json()).user:null}catch{return json({error:'Serveur WarLike indisponible.'},503)}
