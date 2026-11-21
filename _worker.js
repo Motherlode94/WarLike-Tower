@@ -27,6 +27,14 @@ async function handler(req,env){const url=new URL(req.url),path=url.pathname;
  }
  if(path==='/api/logout'&&req.method==='POST') {if(!checkOrigin(req))return json({error:'Origine refusée.'},403);const t=cookie(req);if(t)await upstream(req,env,'/api/warlike-auth/logout',{method:'POST',token:t}).catch(()=>{});return json({ok:true},200,{'Set-Cookie':`${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`});}
  if(!await principal(req,env))return json({error:'Connexion administrateur requise.'},401);
+ if(path==='/api/registration-activate'&&req.method==='POST'){
+ if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
+ let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
+ if(typeof d.id!=='string'||!/^[0-9a-f-]{36}$/.test(d.id)||typeof d.login!=='string'||typeof d.password!=='string')return json({error:'Identifiants invalides.'},400);
+ const response=await upstream(req,env,'/api/warlike-auth/registration-activate',{method:'POST',token:cookie(req),body:JSON.stringify({id:d.id,login:d.login,password:d.password})});
+ if(!response.ok)return json({error:'Activation impossible. Vérifiez la demande et les identifiants.'},response.status);
+ return json({ok:true},201);
+ }
  if(path==='/api/registration-decision'&&req.method==='POST'){
  if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
  let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
