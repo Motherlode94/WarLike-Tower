@@ -42,6 +42,16 @@ async function handler(req,env){const url=new URL(req.url),path=url.pathname;
  const response=await upstream(req,env,'/api/warlike-auth/registration-decision',{method:'POST',token:cookie(req),body:JSON.stringify({id:d.id,decision:d.decision})});
  return json(await response.json(),response.status);
  }
+ if(path==='/api/registration-account-sessions'&&req.method==='POST'){
+ if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
+ let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
+ if(typeof d.memberId!=='string'||!d.memberId||d.memberId.length>100)return json({error:'Identifiant invalide.'},400);
+ const response=await upstream(req,env,'/api/warlike-auth/admin-sessions',{method:'POST',token:cookie(req),body:JSON.stringify({memberId:d.memberId})});
+ if(!response.ok)return json({error:'Inventaire indisponible.'},response.status===401||response.status===403?403:503);
+ const data=await response.json();
+ if(!Array.isArray(data.sessions)||!data.sessions.every(x=>x&&Number.isFinite(x.createdAt)&&Number.isFinite(x.expiresAt)))return json({error:'Réponse Server invalide.'},502);
+ return json({sessions:data.sessions.slice(0,100).map(x=>({createdAt:x.createdAt,expiresAt:x.expiresAt}))});
+ }
  if(path==='/api/registration-account-control'&&req.method==='POST'){
  if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
  let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
