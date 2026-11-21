@@ -27,12 +27,19 @@ async function handler(req,env){const url=new URL(req.url),path=url.pathname;
  }
  if(path==='/api/logout'&&req.method==='POST') {if(!checkOrigin(req))return json({error:'Origine refusée.'},403);const t=cookie(req);if(t)await upstream(req,env,'/api/warlike-auth/logout',{method:'POST',token:t}).catch(()=>{});return json({ok:true},200,{'Set-Cookie':`${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`});}
  if(!await principal(req,env))return json({error:'Connexion administrateur requise.'},401);
+ if(path==='/api/registration-decision'&&req.method==='POST'){
+ if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
+ let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
+ if(typeof d.id!=='string'||!/^[0-9a-f-]{36}$/.test(d.id)||!['accepted','refused'].includes(d.decision))return json({error:'Décision invalide.'},400);
+ const response=await upstream(req,env,'/api/warlike-auth/registration-decision',{method:'POST',token:cookie(req),body:JSON.stringify({id:d.id,decision:d.decision})});
+ return json(await response.json(),response.status);
+ }
  if(path==='/api/registration-requests'&&req.method==='GET'){
   const response=await upstream(req,env,'/api/warlike-auth/registration-list',{method:'POST',token:cookie(req),body:'{}'});
   if(!response.ok)return json({error:'Liste des inscriptions indisponible.'},response.status===401||response.status===403?403:503);
   const data=await response.json();
   if(!Array.isArray(data.requests))return json({error:'Réponse Server invalide.'},502);
-  return json({requests:data.requests.slice(0,100).map(x=>({id:x.id,name:x.name,email:x.email,created_at:x.created_at}))});
+  return json({requests:data.requests.slice(0,100).map(x=>({id:x.id,name:x.name,email:x.email,created_at:x.created_at,status:x.status??null,decided_at:x.decided_at??null}))});
  }
  if(path.startsWith('/api/networks/')){
  const action=path.slice('/api/networks/'.length);if(!((['registry','communications','security-summary'].includes(action)&&req.method==='GET')||(['allocate','revoke','admin-end-call'].includes(action)&&req.method==='POST')))return json({error:'Route inconnue.'},404);
