@@ -1,4 +1,4 @@
-const SITES=[['warlike-hub','Hub'],['warlike-server','Server'],['warlike-mail','Mail'],['warlike-engine','Engine'],['warlike-studio','Studio'],['warlike-library','Library'],['warlike-asset-stores','Asset Stores'],['warlike-node','Node'],['warlike-monteur','Monteur'],['warlike-modeliser','Modeliser'],['warlike-misc','MISC'],['warlike-ebook','Ebook'],['warlike-browser','Browser'],['warlike-radio','Radio'],['warlike-chat','Chat'],['warlike-online','Online'],['warlike-android-hub','Android Hub'],['warlike-pdf','PDF'],['warlike-crypte','Crypte']];
+const SITES=[['warlike-hub','Hub'],['warlike-server','Server'],['warlike-mail','Mail'],['warlike-engine','Engine'],['warlike-studio','Studio'],['warlike-library','Library'],['warlike-asset-stores','Asset Stores'],['warlike-node','Node'],['warlike-monteur','Monteur'],['warlike-modeliser','Modeliser'],['warlike-misc','MISC'],['warlike-ebook','Ebook'],['warlike-browser','Browser'],['warlike-radio','Radio'],['warlike-chat','Chat'],['warlike-online','Online'],['warlike-android-hub','Android Hub'],['warlike-pdf','PDF'],['warlike-crypte','Crypte'],['warlike-networks','Networks'],['warlike-telecom','Telecom']];
 const ALLOWED=new Set(SITES.map(([id])=>id));
 const COOKIE='__Host-warlike_tower';
 const account='73c964bff8e0a8220d28a9f3d6abe50d';
@@ -27,6 +27,12 @@ async function handler(req,env){const url=new URL(req.url),path=url.pathname;
  }
  if(path==='/api/logout'&&req.method==='POST') {if(!checkOrigin(req))return json({error:'Origine refusée.'},403);const t=cookie(req);if(t)await upstream(req,env,'/api/warlike-auth/logout',{method:'POST',token:t}).catch(()=>{});return json({ok:true},200,{'Set-Cookie':`${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`});}
  if(!await principal(req,env))return json({error:'Connexion administrateur requise.'},401);
+ if(path.startsWith('/api/networks/')){
+ const action=path.slice('/api/networks/'.length);if(!((action==='registry'&&req.method==='GET')||(['allocate','revoke'].includes(action)&&req.method==='POST')))return json({error:'Route inconnue.'},404);
+ if(!env.NETWORKS)return json({error:'Binding Networks non configuré.'},503);
+ let body;if(req.method==='POST'){if(!checkOrigin(req))return json({error:'Origine refusée.'},403);try{const d=await readJson(req);const key=action==='allocate'?'user_id':'number';if(typeof d[key]!=='string'||!d[key]||d[key].length>254)return json({error:'Valeur invalide.'},400);body=JSON.stringify({[key]:d[key]});}catch{return json({error:'Requête invalide.'},400);}}
+ const origin='https://warlike-networks.pages.dev';const response=await env.NETWORKS.fetch(new Request(origin+'/api/'+action,{method:req.method,headers:{origin,cookie:'__Host-warlike_networks='+cookie(req),'content-type':'application/json'},body,redirect:'manual'}));return json(await response.json(),response.status);
+ }
  if(path==='/api/projects'&&req.method==='GET'){
   if(!env.CLOUDFLARE_API_TOKEN)return json({connected:false,projects:SITES.map(([id,name])=>({id,name,status:'non_connecte',url:`https://${id}.pages.dev`}))});
   const projects=await Promise.all(SITES.map(async([id,name])=>{try{const d=await cf(env,`/pages/projects/${id}`);if(!d?.success)return {id,name,status:'inconnu',url:`https://${id}.pages.dev`};let x=d.result,l=x.latest_deployment;return {id,name,url:`https://${x.subdomain}`,status:l?.latest_stage?.status||'inconnu',deployment:l?.id||null,updated:l?.created_on||null,branch:l?.deployment_trigger?.metadata?.branch||null};}catch{return {id,name,status:'inconnu',url:`https://${id}.pages.dev`}}}));
