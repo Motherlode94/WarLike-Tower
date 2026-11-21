@@ -27,8 +27,49 @@ async function handler(req,env){const url=new URL(req.url),path=url.pathname;
  }
  if(path==='/api/logout'&&req.method==='POST') {if(!checkOrigin(req))return json({error:'Origine refusée.'},403);const t=cookie(req);if(t)await upstream(req,env,'/api/warlike-auth/logout',{method:'POST',token:t}).catch(()=>{});return json({ok:true},200,{'Set-Cookie':`${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`});}
  if(!await principal(req,env))return json({error:'Connexion administrateur requise.'},401);
+ if(path==='/api/registration-activate'&&req.method==='POST'){
+ if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
+ let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
+ if(typeof d.id!=='string'||!/^[0-9a-f-]{36}$/.test(d.id)||typeof d.login!=='string'||typeof d.password!=='string')return json({error:'Identifiants invalides.'},400);
+ const response=await upstream(req,env,'/api/warlike-auth/registration-activate',{method:'POST',token:cookie(req),body:JSON.stringify({id:d.id,login:d.login,password:d.password})});
+ if(!response.ok)return json({error:'Activation impossible. Vérifiez la demande et les identifiants.'},response.status);
+ return json({ok:true},201);
+ }
+ if(path==='/api/registration-decision'&&req.method==='POST'){
+ if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
+ let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
+ if(typeof d.id!=='string'||!/^[0-9a-f-]{36}$/.test(d.id)||!['accepted','refused'].includes(d.decision))return json({error:'Décision invalide.'},400);
+ const response=await upstream(req,env,'/api/warlike-auth/registration-decision',{method:'POST',token:cookie(req),body:JSON.stringify({id:d.id,decision:d.decision})});
+ return json(await response.json(),response.status);
+ }
+ if(path==='/api/registration-account-sessions'&&req.method==='POST'){
+ if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
+ let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
+ if(typeof d.memberId!=='string'||!d.memberId||d.memberId.length>100)return json({error:'Identifiant invalide.'},400);
+ const response=await upstream(req,env,'/api/warlike-auth/admin-sessions',{method:'POST',token:cookie(req),body:JSON.stringify({memberId:d.memberId})});
+ if(!response.ok)return json({error:'Inventaire indisponible.'},response.status===401||response.status===403?403:503);
+ const data=await response.json();
+ if(!Array.isArray(data.sessions)||!data.sessions.every(x=>x&&Number.isFinite(x.createdAt)&&Number.isFinite(x.expiresAt)))return json({error:'Réponse Server invalide.'},502);
+ return json({sessions:data.sessions.slice(0,100).map(x=>({createdAt:x.createdAt,expiresAt:x.expiresAt}))});
+ }
+ if(path==='/api/registration-account-control'&&req.method==='POST'){
+ if(!checkOrigin(req))return json({error:'Origine refusée.'},403);
+ let d;try{d=await readJson(req)}catch{return json({error:'Requête invalide.'},400)}
+ if(typeof d.memberId!=='string'||!d.memberId||d.memberId.length>100||!['active','suspended','revokeSessions'].includes(d.command))return json({error:'Commande invalide.'},400);
+ const payload=d.command==='revokeSessions'?{action:'revokeSessions',memberId:d.memberId}:{action:'status',memberId:d.memberId,status:d.command};
+ const response=await upstream(req,env,'/api/admin',{method:'POST',token:cookie(req),body:JSON.stringify(payload)});
+ if(!response.ok)return json({error:'Action administrative refusée.'},response.status);
+ return json({ok:true});
+ }
+ if(path==='/api/registration-requests'&&req.method==='GET'){
+  const response=await upstream(req,env,'/api/warlike-auth/registration-list',{method:'POST',token:cookie(req),body:'{}'});
+  if(!response.ok)return json({error:'Liste des inscriptions indisponible.'},response.status===401||response.status===403?403:503);
+  const data=await response.json();
+  if(!Array.isArray(data.requests))return json({error:'Réponse Server invalide.'},502);
+  return json({requests:data.requests.slice(0,100).map(x=>({id:x.id,name:x.name,email:x.email,created_at:x.created_at,status:x.status??null,decided_at:x.decided_at??null,member_id:x.member_id??null,activated_at:x.activated_at??null,account_status:x.account_status??null}))});
+ }
  if(path.startsWith('/api/networks/')){
- const action=path.slice('/api/networks/'.length);if(!((['registry','communications','permissions'].includes(action)&&req.method==='GET')||(['allocate','revoke','admin-end-call','permissions'].includes(action)&&req.method==='POST')))return json({error:'Route inconnue.'},404);
+ const action=path.slice('/api/networks/'.length);if(!((['registry','communications','security-summary','permissions'].includes(action)&&req.method==='GET')||(['allocate','revoke','admin-end-call','permissions'].includes(action)&&req.method==='POST')))return json({error:'Route inconnue.'},404);
  if(!env.NETWORKS)return json({error:'Binding Networks non configuré.'},503);
  let body;if(req.method==='POST'){if(!checkOrigin(req))return json({error:'Origine refusée.'},403);try{const d=await readJson(req);if(action==='permissions'){const keys=['call_in','call_out','message_in','message_out'];if(typeof d.user_id!=='string'||!d.user_id||d.user_id.length>254||!keys.every(k=>typeof d[k]==='boolean'))return json({error:'Permissions invalides.'},400);body=JSON.stringify({user_id:d.user_id,...Object.fromEntries(keys.map(k=>[k,d[k]]))});}else{const key=action==='allocate'?'user_id':action==='admin-end-call'?'id':'number';if(typeof d[key]!=='string'||!d[key]||d[key].length>254)return json({error:'Valeur invalide.'},400);body=JSON.stringify({[key]:d[key]});}}catch{return json({error:'Requête invalide.'},400);}}
  const origin='https://warlike-networks.pages.dev';const response=await env.NETWORKS.fetch(new Request(origin+'/api/'+action,{method:req.method,headers:{origin,cookie:'__Host-warlike_networks='+cookie(req),'content-type':'application/json'},body,redirect:'manual'}));return json(await response.json(),response.status);
